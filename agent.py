@@ -69,6 +69,9 @@ class ReactAgent:
 
     def run(self, user_input: str) -> str:
         self.messages.append({"role": "user", "content": user_input})
+        # protection against infinite loops
+        max_calls = 5
+        call_count = 0
 
         while True:
             resp = client.chat.completions.create(
@@ -94,6 +97,10 @@ class ReactAgent:
                 logger.info(f"Model requested function call: {fname} with args {fargs}")
 
             if self.should_continue(resp):
+                # count and guard function calls
+                call_count += 1
+                if call_count > max_calls:
+                    raise RuntimeError("Maximum function call limit reached.")
                 sel = self.select_tool(resp)
                 if not sel:
                     raise RuntimeError("Model asked for unknown tool")
