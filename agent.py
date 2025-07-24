@@ -1,84 +1,121 @@
-# react-agent
+import json
+import logging
+from typing import Any, Dict, List, Optional
 
-**Simple yet powerful Reason-and-Act (ReAct) agent implemented in Python.**
+import openai
 
-## Overview
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-`react-agent` is a lightweight framework for building autonomous agents that follow the ReAct paradigm: interleaving **reasoning** (thinking) with **actions** (tool calls) to solve complex tasks. This agent leverages OpenAI's API to generate step-by-step reasoning and decide when to call external tools (e.g., web search, calculator).
+client = openai.OpenAI()
 
-## Features
 
-- **Reasoning and Acting**: Uses ReAct to chain thought and actions.
-- **Extensible Tools**: Define custom tools with descriptions and JSON parameters.
-- **OpenAI Integration**: Seamlessly integrates with the `openai` Python package.
-- **Easy to Use**: Minimal boilerplate to get started.
-- **Debug Logging**: Built-in logging to trace thought and function calls.
+def search_tool(query: str) -> str:
+    # … call your search API …
+    return f"Results for '{query}'"
 
-## Installation
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-username/react-agent.git
-   cd react-agent
-   ```
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-   > **Note**: Ensure you have `openai` installed.
+def calc_tool(expression: str) -> str:
+    # … evaluate math expression safely …
+    return str(eval(expression))
 
-3. Set your OpenAI API key:
-   ```bash
-   export OPENAI_API_KEY=your_api_key_here
-   ```
 
-## Usage
-
-### Basic Example
-
-```python
-from agent import ReactAgent
-
-agent = ReactAgent(model="gpt-4o-mini", temperature=0.2)
-response = agent.run("What's 42 times 17, and then find me the top news about Python?")
-print(response)
-```
-
-### Tools
-
-The agent supports custom tools defined in the `TOOLS` dictionary:
-
-- **search**: Performs web search.
-  - **Parameters**:
-    - `query` (string): What to search.
-- **calculator**: Evaluates simple math expressions.
-  - **Parameters**:
-    - `expression` (string): Math expression to evaluate.
-
-#### Adding Custom Tools
-
-```python
-def custom_tool(data: str) -> str:
-    # custom logic
-    return "result"
-
-TOOLS["custom"] = {
-    "func": custom_tool,
-    "description": "Describe your tool here",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "data": {"type": "string", "description": "input data"}
+TOOLS: Dict[str, Dict[str, Any]] = {
+    "search": {
+        "func": search_tool,
+        "description": "Use for looking up things on the web",
+        "parameters": {
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "what to search"}},
+            "required": ["query"],
         },
-        "required": ["data"],
+    },
+    "calculator": {
+        "func": calc_tool,
+        "description": "Use for simple math calculations",
+        "parameters": {
+            "type": "object",
+            "properties": {"expression": {"type": "string", "description": "math expression"}},
+            "required": ["expression"],
+        },
     },
 }
-```
 
-## Contributing
 
-Contributions welcome! Feel free to open issues or submit pull requests.
+class ReactAgent:
+    def __init__(self, model: str = "gpt-4o-mini", temperature: float = 0.2):
+        self.model = model
+        self.temperature = temperature
+        self.messages: List[Dict[str, str]] = [
+            {"role": "system", "content": (
+                "You are an expert travel insurance specialist. You possess deep knowledge of travel insurance policies, coverage options, claim procedures, and regulations worldwide. "
+                "When interacting with users, provide thorough, accurate guidance on travel insurance matters. Think step by step, call a tool if needed to fetch up-to-date information, or return a final answer."
+            )}
+        ]
 
-## License
+    def should_continue(self, resp: openai.ChatCompletion) -> bool:
+        # continue if model asks for a function call
+        fc = resp.choices[0].finish_reason == "function_call"
+        return fc
 
-MIT License
+    def select_tool(self, resp: openai.ChatCompletion) -> Optional[Dict[str, Any]]:
+        choice = resp.choices[0]
+        if choice.finish_reason == "function_call":
+            name = choice.message.function_call.name
+            args = json.loads(choice.message.function_call.arguments)
+            tool = TOOLS.get(name)
+            return {"tool": tool, "args": args} if tool else None
+        return None
+
+    def run(self, user_input: str) -> str:
+        self.messages.append({"role": "user", "content": user_input})
+
+        while True:
+            resp = client.chat.completions.create(
+                model=self.model,
+                temperature=self.temperature,
+                messages=self.messages,
+                functions=[
+                    {
+                        "name": name,
+                        "description": info["description"],
+                        "parameters": info["parameters"],
+                    }
+                    for name, info in TOOLS.items()
+                ],
+                function_call="auto",
+            )
+            fr = resp.choices[0].finish_reason
+            # Debug: log model response finish_reason and potential function call
+            logger.info(f"finish_reason: {fr}")
+            if fr == "function_call":
+                fname = resp.choices[0].message.function_call.name
+                fargs = resp.choices[0].message.function_call.arguments
+                logger.info(f"Model requested function call: {fname} with args {fargs}")
+
+            if self.should_continue(resp):
+                sel = self.select_tool(resp)
+                if not sel:
+                    raise RuntimeError("Model asked for unknown tool")
+                # Debug: about to execute the selected tool
+                logger.info(f"Executing tool function for {fname}")
+                # call the tool
+                result = sel["tool"]["func"](**sel["args"])
+                logger.info(f"Tool result: {result}")
+                # append the function response for the next turn
+                self.messages.append({
+                    "role": "function",
+                    "name": resp.choices[0].message.function_call.name,
+                    "content": result,
+                })
+                continue
+
+            # no more function calls → final answer
+            final = resp.choices[0].message.content
+            return final
+
+
+if __name__ == "__main__":
+    agent = ReactAgent()
+    answer = agent.run("What’s 42 times 17, and then find me the top news about Python?")
+    print(answer)
