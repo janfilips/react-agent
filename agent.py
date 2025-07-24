@@ -48,8 +48,9 @@ class ReactAgent:
         self.temperature = temperature
         self.messages: List[Dict[str, str]] = [
             {"role": "system", "content": (
-                "You are an expert travel insurance specialist. You possess deep knowledge of travel insurance policies, coverage options, claim procedures, and regulations worldwide. "
-                "When interacting with users, provide thorough, accurate guidance on travel insurance matters. Think step by step, call a tool if needed to fetch up-to-date information, or return a final answer."
+                "You are an agent that reasons step by step. "
+                "Think, then call a tool if needed via a function, "
+                "or return a final answer."
             )}
         ]
 
