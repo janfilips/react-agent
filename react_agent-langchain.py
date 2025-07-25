@@ -3,7 +3,8 @@ import re
 from datetime import datetime
 from typing import Any, Dict
 
-from langchain.agents import AgentType, Tool, initialize_agent
+from langchain.agents import AgentType, initialize_agent
+from langchain.tools import StructuredTool
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain.callbacks.tracers import LangChainTracer
 from langchain.schema import SystemMessage
@@ -39,6 +40,10 @@ def calc_tool(expression: str) -> str:
 def query_insurance_terms_tool(term: str) -> str:
     return f"Definition of '{term}'"
 
+def query_insurance_products_tool() -> str:
+    """Return all products from partner insurance companies."""
+    return "List of all insurance products from partner companies"
+
 
 # Tools Configuration (unchanged)
 TOOLS_CONFIG: Dict[str, Dict[str, Any]] = {
@@ -69,6 +74,15 @@ TOOLS_CONFIG: Dict[str, Dict[str, Any]] = {
             "required": ["term"]
         }
     },
+    "query_insurance_products": {
+        "func": query_insurance_products_tool,
+        "description": "Use for retrieving all insurance products from partner companies",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
 }
 
 
@@ -96,11 +110,11 @@ class ReactAgent:
         tracer = LangChainTracer()
         callbacks = [stream_handler, tracer]
 
-        # Build LangChain tools (no wrapping needed)
+        # Build LangChain tools using StructuredTool
         tools = [
-            Tool(
+            StructuredTool.from_function(
+                func=info["func"],
                 name=name,
-                func=info["func"],  # Use original function directly
                 description=info["description"],
                 args_schema=info["parameters"],
             )
@@ -136,12 +150,25 @@ class ReactAgent:
         yield {"content": content}
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":    
     agent = ReactAgent()
-    # answer = agent.run(
-    #     "Search for new insurance laws for this month."
-    # )
+
+    answer = agent.run(
+        "Search for new insurance laws for this month."
+    )
+    print(answer)
+
+    answer = agent.run(
+        "List all insurance products available from partner companies."
+    )
+    print(answer)
+
     answer = agent.run(
         "Define the insurance term 'deductible' for me, and then calculate 20% of a 1500 claim amount."
+    )
+    print(answer)
+
+    answer = agent.run(
+        "Define the insurance term ‘co-payment’, then list all partner insurance products, and calculate what 12% of a 2,500 claim amount would be."
     )
     print(answer)
