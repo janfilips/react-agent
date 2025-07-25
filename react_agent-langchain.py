@@ -4,10 +4,10 @@ from datetime import datetime
 from typing import Any, Dict
 
 from langchain.agents import AgentType, initialize_agent
-from langchain.tools import StructuredTool
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain.callbacks.tracers import LangChainTracer
 from langchain.schema import SystemMessage
+from langchain.tools import StructuredTool
 from langchain_openai import ChatOpenAI
 
 from backend import config
@@ -39,6 +39,7 @@ def calc_tool(expression: str) -> str:
 
 def query_insurance_terms_tool(term: str) -> str:
     return f"Definition of '{term}'"
+
 
 def query_insurance_products_tool() -> str:
     """Return all products from partner insurance companies."""
@@ -150,7 +151,7 @@ class ReactAgent:
         yield {"content": content}
 
 
-if __name__ == "__main__":    
+if __name__ == "__main__":
     agent = ReactAgent()
 
     answer = agent.run(
